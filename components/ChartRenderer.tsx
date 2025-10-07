@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import vegaEmbed from 'vega-embed';
-import { TooltipIcon } from './icons/Icons';
+import { TooltipIcon, DownloadIcon } from './icons/Icons';
 
 interface ChartRendererProps {
   spec: any;
@@ -52,6 +52,56 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({ spec, data }) => {
     }
   }, [spec, data, selectedScheme, showTooltips]);
 
+  const handleDownload = () => {
+    if (!chartContainer.current) return;
+
+    const svg = chartContainer.current.querySelector('svg');
+    if (!svg) {
+      console.error("Elemento SVG não encontrado para download.");
+      return;
+    }
+
+    const svgString = new XMLSerializer().serializeToString(svg);
+    const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)));
+
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const rect = svg.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            // Preenche o fundo com branco para evitar PNGs transparentes
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            
+            const pngUrl = canvas.toDataURL('image/png');
+            
+            const a = document.createElement('a');
+            a.href = pngUrl;
+            
+            // Gera um nome de arquivo a partir do título do gráfico
+            const title = spec.title?.text || 'grafico';
+            const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}.png`;
+            a.download = filename;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } else {
+            console.error("Não foi possível obter o contexto do canvas.");
+        }
+    };
+    img.onerror = () => {
+        console.error("Falha ao carregar o SVG como uma imagem.");
+    };
+    img.src = dataUrl;
+  };
+
+
   return (
     <div className="chart-render-wrapper w-full bg-white rounded-md shadow-sm border border-border-color">
       <div className="flex items-center justify-end gap-3 p-1.5 bg-secondary-background/50 border-b border-border-color">
@@ -83,6 +133,14 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({ spec, data }) => {
           title={showTooltips ? 'Desativar Tooltips' : 'Ativar Tooltips'}
         >
           <TooltipIcon className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={handleDownload}
+          className="p-1.5 border rounded-md transition-colors bg-transparent text-text-secondary hover:bg-gray-200 border-border-color"
+          title="Baixar Gráfico como PNG"
+        >
+          <DownloadIcon className="w-4 h-4" />
         </button>
       </div>
       <div ref={chartContainer} className="w-full h-80 p-2"></div>
