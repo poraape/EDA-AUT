@@ -1,0 +1,5 @@
+{
+  "name": "Agente Autônomo de EDA",
+  "description": "Um agente alimentado por IA que ingere arquivos CSV, realiza Análise Exploratória de Dados (EDA) automatizada e permite que os usuários interajam com seus dados por meio de uma interface de chat em linguagem natural, gerando insights e visualizações dinamicamente.",
+  "requestFramePermissions": []
+}
