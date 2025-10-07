@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
@@ -28,33 +27,59 @@ const App: React.FC = () => {
 
     // 1. Create a deep clone to manipulate without affecting the live DOM
     const containerClone = chatContainerRef.current.cloneNode(true) as HTMLDivElement;
+    
+    // 2. Gather all applicable CSS from the document's stylesheets.
+    // This is crucial for embedding styles into the SVG for correct rendering.
+    let allCss = '';
+    try {
+        for (const sheet of Array.from(document.styleSheets)) {
+            // Cross-origin stylesheets (like Google Fonts) will throw an error and can be ignored.
+            try {
+                for (const rule of Array.from(sheet.cssRules)) {
+                    allCss += rule.cssText;
+                }
+            } catch (e) {
+                console.warn("Não foi possível ler as regras de CSS da folha de estilo:", sheet.href, e);
+            }
+        }
+    } catch (e) {
+        console.error("Erro ao ler as folhas de estilo:", e);
+    }
 
-    // 2. Find original SVGs in the live DOM to get correct dimensions and styles
-    // Fix: Explicitly type the querySelectorAll result to SVGElement to ensure
-    // that the 'svg' variable inside the map is correctly typed, resolving
-    // errors with `serializeToString` and `getBoundingClientRect`.
-    // FIX: The generic on querySelectorAll wasn't correctly inferring the type, so we use a type assertion.
+    // 3. Find original SVGs in the live DOM and their corresponding wrappers in the clone.
     const originalSvgs = Array.from(chatContainerRef.current.querySelectorAll('.chart-render-wrapper svg')) as SVGElement[];
     const clonedChartWrappers = Array.from(containerClone.querySelectorAll('.chart-render-wrapper'));
 
-    // 3. Create promises to convert each SVG to a PNG data URL
+    // 4. Create promises to convert each SVG to a PNG data URL, now with embedded styles.
     const conversionPromises = originalSvgs.map(svg => {
         return new Promise<string>((resolve, reject) => {
-            const svgString = new XMLSerializer().serializeToString(svg);
-            // This method is robust for handling Unicode characters in the SVG
+            // Clone the SVG to avoid modifying the one in the live DOM.
+            const svgClone = svg.cloneNode(true) as SVGElement;
+            const rect = svg.getBoundingClientRect();
+
+            // Create a style element and embed all collected CSS.
+            const styleElement = document.createElement('style');
+            styleElement.textContent = allCss;
+            svgClone.insertBefore(styleElement, svgClone.firstChild);
+
+            // Set explicit width and height on the clone from the original's bounding box.
+            // This prevents rendering issues when the SVG is taken out of its layout context.
+            svgClone.setAttribute('width', `${rect.width}`);
+            svgClone.setAttribute('height', `${rect.height}`);
+
+            const svgString = new XMLSerializer().serializeToString(svgClone);
+            // Using btoa with a trick to handle UTF-8 characters correctly.
             const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)));
             
             const img = new Image();
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                // Use the live SVG's rendered dimensions for accuracy
-                const rect = svg.getBoundingClientRect();
                 canvas.width = rect.width;
                 canvas.height = rect.height;
 
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
-                    // Fill background with white to avoid transparent PNGs
+                    // Fill background with white to avoid transparent PNGs.
                     ctx.fillStyle = 'white';
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(img, 0, 0);
@@ -64,17 +89,17 @@ const App: React.FC = () => {
                 }
             };
             img.onerror = () => {
-                reject(new Error('Falha ao carregar o SVG como uma imagem.'));
+                reject(new Error('Falha ao carregar o SVG com estilos embutidos como uma imagem.'));
             };
             img.src = dataUrl;
         });
     });
 
     try {
-        // 4. Wait for all SVG-to-PNG conversions to complete
+        // 5. Wait for all SVG-to-PNG conversions to complete.
         const pngDataUrls = await Promise.all(conversionPromises);
 
-        // 5. Replace chart wrappers in the CLONE with the generated PNG images
+        // 6. Replace chart wrappers in the CLONE with the generated PNG images.
         clonedChartWrappers.forEach((wrapper, index) => {
             if (pngDataUrls[index]) {
                 const pngImg = document.createElement('img');
@@ -83,21 +108,18 @@ const App: React.FC = () => {
                 pngImg.style.height = 'auto';
                 pngImg.alt = 'Visualização de Gráfico';
 
-                // Clear the wrapper (which might contain controls) and append the image
                 wrapper.innerHTML = ''; 
                 wrapper.appendChild(pngImg);
             }
         });
     } catch (error) {
         console.error("Erro ao exportar gráficos:", error);
-        // We can optionally show an error to the user here.
-        // For now, we'll log it and proceed with exporting the text content.
     }
 
-    // 6. Get the modified HTML content from the clone
+    // 7. Get the modified HTML content from the clone.
     const content = containerClone.innerHTML;
 
-    // 7. Assemble the full HTML document for export
+    // 8. Assemble the full HTML document for export.
     const tailwindCSS = `<script src="https://cdn.tailwindcss.com"></script>`;
     const customTailwindConfig = `<script>
         tailwind.config = {
@@ -118,7 +140,7 @@ const App: React.FC = () => {
     </script>`;
     const customFonts = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">`;
     
-    // 8. Add specific styles for tables rendered from Markdown to ensure they are styled correctly
+    // Add specific styles for tables rendered from Markdown.
     const customStyles = `
         body { background-color: #f5f7fb; font-family: 'Inter', sans-serif; padding: 2rem; } 
         .prose { max-width: none; }
@@ -127,7 +149,7 @@ const App: React.FC = () => {
         .prose thead { background-color: #f5f7fb; border-bottom: 2px solid #e0e0e0; }
         .prose tbody tr:nth-child(even) { background-color: #fcfcfd; }
         .prose th { font-weight: 600; }
-    `.replace(/\s\s+/g, ' '); // Minify the CSS string a bit
+    `.replace(/\s\s+/g, ' ');
 
     const html = `
         <!DOCTYPE html>

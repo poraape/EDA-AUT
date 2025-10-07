@@ -50,7 +50,7 @@ const baseSystemInstruction = `Você é um agente de IA especialista em análise
 
 5.  **Regras Críticas e Casos Específicos:**
     *   **Boxplot:** **NÃO** use ou defina um sinal ou parâmetro chamado "outliers". Utilize as propriedades padrão da marca boxplot.
-    *   **Gráficos Repetidos:** Ao usar \`"repeat"\`, a referência correta ao campo repetido é \`"field": {"repeat": "column"}\` (ou \`"row"\`).
+    *   **Gráficos Repetidos (Repeat):** Ao usar o operador \`"repeat"\`, a referência ao campo repetido dentro do \`"encoding"\` deve usar a estrutura correta. Para repetição em 2D (usando \`"row"\` e \`"column"\`), a referência é \`{"repeat": "row"}\` ou \`{"repeat": "column"}\`. Para repetição em 1D (um único array de campos), a referência é \`{"repeat": "repeat"}\`. Exemplo de uso: \`"field": {"repeat": "column"}\`.
     *   **NUNCA** inclua os dados do usuário na sua resposta. O cliente já possui os dados e os injetará no gráfico. A especificação JSON do Vega-Lite não deve conter um campo \`"data"\`.
 
 **Formato de Saída Obrigatório:**
@@ -134,6 +134,31 @@ interface GeminiAnalysisResponse {
     suggestions: string[];
 }
 
+const processGeminiError = (error: unknown, context: 'análise inicial' | 'resposta de chat'): Error => {
+    console.error(`Erro do Gemini durante ${context}:`, error);
+    let userMessage = "Falha ao obter uma resposta válida do modelo de IA.";
+
+    if (error instanceof SyntaxError) {
+         userMessage = "A resposta do modelo de IA não estava em um formato JSON válido. Isso pode ser um problema temporário. Tente novamente.";
+    } else if (error instanceof Error) {
+        // Check for common API error messages from Google AI
+        if (error.message.includes('API key not valid')) {
+            userMessage = "A chave da API do Google AI não é válida. Por favor, verifique a configuração do ambiente.";
+        } else if (error.message.toLowerCase().includes('safety')) {
+             userMessage = "A sua pergunta ou a resposta do modelo foi bloqueada por motivos de segurança. Tente reformular a pergunta com termos diferentes.";
+        } else if (error.message.toLowerCase().includes('timed out')) {
+             userMessage = "A solicitação demorou muito para ser respondida. Verifique sua conexão com a internet ou tente novamente mais tarde.";
+        } else {
+            // Keep the original message if it's somewhat informative
+            userMessage = `Ocorreu um erro na API: ${error.message}`;
+        }
+    } else {
+        userMessage = "Ocorreu um erro desconhecido. Verifique o console para mais detalhes.";
+    }
+    return new Error(userMessage);
+};
+
+
 export const startChatSession = async (dataset: Dataset): Promise<GeminiAnalysisResponse> => {
     chat = ai.chats.create({
         model: 'gemini-2.5-flash',
@@ -162,9 +187,8 @@ ${getDatasetContext(dataset)}
             suggestions: parsed.followUpQuestions || []
         };
     } catch (error) {
-        console.error("Error calling Gemini API for initial analysis:", error);
         chat = null; // Reset on error
-        throw new Error("Failed to get a valid analysis from the AI model.");
+        throw processGeminiError(error, 'análise inicial');
     }
 };
 
@@ -188,8 +212,7 @@ export const generateChatResponse = async (
             suggestions: parsed.followUpQuestions || []
         };
     } catch (error) {
-        console.error("Error calling Gemini API for chat response:", error);
-        throw new Error("Failed to get a valid chat response from the AI model.");
+        throw processGeminiError(error, 'resposta de chat');
     }
 };
 

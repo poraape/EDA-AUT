@@ -42,11 +42,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ dataset, messages, setMes
       setSuggestions(suggestions);
     } catch (error) {
       console.error('Falha ao iniciar a sessão de chat:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Ocorreu um erro desconhecido.';
       setMessages([
         {
           id: `err-${Date.now()}`,
           role: 'assistant',
-          content: [{ type: 'error', text: 'Desculpe, não consegui analisar o conjunto de dados. Por favor, tente novamente.' }],
+          content: [{ type: 'error', text: `Desculpe, não consegui analisar o conjunto de dados.\n\n**Detalhe:** ${errorMessage}` }],
         },
       ]);
     } finally {
@@ -90,10 +91,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ dataset, messages, setMes
       setSuggestions(suggestions);
     } catch (error) {
       console.error('Falha ao obter resposta do chat:', error);
+      const errorMessageText = error instanceof Error ? error.message : 'Ocorreu um erro desconhecido.';
       const errorMessage: ChatMessage = {
         id: `err-${Date.now()}`,
         role: 'assistant',
-        content: [{ type: 'error', text: 'Desculpe, algo deu errado. Por favor, tente novamente.' }],
+        content: [{ type: 'error', text: `Desculpe, algo deu errado.\n\n**Detalhe:** ${errorMessageText}` }],
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {

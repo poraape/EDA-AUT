@@ -21,6 +21,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, isLoading = false }) =
       case 'chart':
         return <ChartRenderer key={index} spec={contentItem.spec} data={contentItem.data} />;
       case 'error':
+        // This case is primarily for assistant errors, user messages won't have it.
         return <p key={index} className="text-red-300">{contentItem.text}</p>;
       default:
         // Using JSON.stringify for debugging unknown content types
@@ -35,7 +36,15 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, isLoading = false }) =
       case 'chart':
         return <ChartRenderer key={index} spec={contentItem.spec} data={contentItem.data} />;
       case 'error':
-        return <p key={index} className="text-red-500">{contentItem.text}</p>;
+        return (
+            <ReactMarkdown 
+                key={index} 
+                remarkPlugins={[remarkGfm]} 
+                className="prose prose-sm max-w-none prose-p:text-red-500 prose-strong:text-red-500"
+            >
+                {contentItem.text}
+            </ReactMarkdown>
+        );
       default:
         return null;
     }

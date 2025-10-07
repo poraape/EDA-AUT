@@ -17,15 +17,16 @@ const colorSchemes = [
 
 const ChartRenderer: React.FC<ChartRendererProps> = ({ spec, data }) => {
   const chartContainer = useRef<HTMLDivElement>(null);
+  const downloadButtonRef = useRef<HTMLDivElement>(null);
+
   const [selectedScheme, setSelectedScheme] = useState<string>(colorSchemes[0].value);
   const [showTooltips, setShowTooltips] = useState<boolean>(true);
+  const [isDownloadMenuOpen, setDownloadMenuOpen] = useState<boolean>(false);
 
   useEffect(() => {
     if (chartContainer.current && spec) {
-      // Deep copy the spec to avoid mutating the original prop
       const modifiedSpec = JSON.parse(JSON.stringify(spec));
 
-      // Apply color scheme customization
       if (modifiedSpec.encoding?.color) {
         modifiedSpec.encoding.color.scale = {
           ...(modifiedSpec.encoding.color.scale || {}),
@@ -33,9 +34,7 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({ spec, data }) => {
         };
       }
 
-      // Apply tooltip customization
       if (!showTooltips && modifiedSpec.encoding?.tooltip) {
-        // To disable tooltips, we remove the tooltip encoding property
         delete modifiedSpec.encoding.tooltip;
       }
       
@@ -47,21 +46,99 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({ spec, data }) => {
         autosize: { type: 'fit', contains: 'padding' },
       };
 
-      vegaEmbed(chartContainer.current, fullSpec, { actions: false })
-        .catch(console.error);
+      vegaEmbed(chartContainer.current, fullSpec, { actions: false }).catch(console.error);
     }
   }, [spec, data, selectedScheme, showTooltips]);
 
-  const handleDownload = () => {
-    if (!chartContainer.current) return;
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (downloadButtonRef.current && !downloadButtonRef.current.contains(event.target as Node)) {
+            setDownloadMenuOpen(false);
+        }
+    };
+    if (isDownloadMenuOpen) {
+        document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDownloadMenuOpen]);
 
+  const getStyledSvg = (svgElement: SVGElement): SVGElement => {
+      const svgClone = svgElement.cloneNode(true) as SVGElement;
+      
+      let allCss = '';
+      try {
+          for (const sheet of Array.from(document.styleSheets)) {
+              try {
+                  for (const rule of Array.from(sheet.cssRules)) {
+                      allCss += rule.cssText;
+                  }
+              } catch (e) {
+                  console.warn("Não foi possível ler as regras CSS da folha de estilo:", sheet.href, e);
+              }
+          }
+      } catch (e) {
+          console.error("Erro ao ler as folhas de estilo para exportação de SVG:", e);
+      }
+      
+      const fontCss = `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'); body { font-family: 'Inter', sans-serif; }`;
+      
+      let defs = svgClone.querySelector('defs');
+      if (!defs) {
+          defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+          svgClone.insertBefore(defs, svgClone.firstChild);
+      }
+      
+      const styleElement = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      styleElement.textContent = fontCss + allCss;
+      defs.appendChild(styleElement);
+
+      const rect = svgElement.getBoundingClientRect();
+      svgClone.setAttribute('width', `${rect.width}`);
+      svgClone.setAttribute('height', `${rect.height}`);
+      
+      return svgClone;
+  };
+
+  const getFilename = (extension: string) => {
+      const title = spec.title?.text || 'grafico';
+      return `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}.${extension}`;
+  };
+
+  const handleDownloadSVG = () => {
+      if (!chartContainer.current) return;
+      const svg = chartContainer.current.querySelector('svg');
+      if (!svg) {
+          console.error("Elemento SVG não encontrado para download.");
+          return;
+      }
+
+      const styledSvg = getStyledSvg(svg);
+      const svgString = new XMLSerializer().serializeToString(styledSvg);
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = getFilename('svg');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setDownloadMenuOpen(false);
+  };
+
+  const handleDownloadPNG = () => {
+    if (!chartContainer.current) return;
     const svg = chartContainer.current.querySelector('svg');
     if (!svg) {
-      console.error("Elemento SVG não encontrado para download.");
-      return;
+        console.error("Elemento SVG não encontrado para download.");
+        return;
     }
-
-    const svgString = new XMLSerializer().serializeToString(svg);
+    
+    const styledSvg = getStyledSvg(svg);
+    const svgString = new XMLSerializer().serializeToString(styledSvg);
     const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)));
 
     const img = new Image();
@@ -73,7 +150,6 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({ spec, data }) => {
 
         const ctx = canvas.getContext('2d');
         if (ctx) {
-            // Preenche o fundo com branco para evitar PNGs transparentes
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
@@ -82,28 +158,24 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({ spec, data }) => {
             
             const a = document.createElement('a');
             a.href = pngUrl;
-            
-            // Gera um nome de arquivo a partir do título do gráfico
-            const title = spec.title?.text || 'grafico';
-            const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}.png`;
-            a.download = filename;
-
+            a.download = getFilename('png');
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
         } else {
             console.error("Não foi possível obter o contexto do canvas.");
         }
+        setDownloadMenuOpen(false);
     };
     img.onerror = () => {
-        console.error("Falha ao carregar o SVG como uma imagem.");
+        console.error("Falha ao carregar o SVG estilizado como uma imagem.");
+        setDownloadMenuOpen(false);
     };
     img.src = dataUrl;
   };
 
-
   return (
-    <div className="chart-render-wrapper w-full bg-white rounded-md shadow-sm border border-border-color">
+    <div className="chart-render-wrapper w-full bg-background rounded-md shadow-sm border border-border-color">
       <div className="flex items-center justify-end gap-3 p-1.5 bg-secondary-background/50 border-b border-border-color">
         <div className="relative">
           <select
@@ -135,13 +207,31 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({ spec, data }) => {
           <TooltipIcon className="w-4 h-4" />
         </button>
 
-        <button
-          onClick={handleDownload}
-          className="p-1.5 border rounded-md transition-colors bg-transparent text-text-secondary hover:bg-gray-200 border-border-color"
-          title="Baixar Gráfico como PNG"
-        >
-          <DownloadIcon className="w-4 h-4" />
-        </button>
+        <div className="relative" ref={downloadButtonRef}>
+          <button
+            onClick={() => setDownloadMenuOpen(prev => !prev)}
+            className="p-1.5 border rounded-md transition-colors bg-transparent text-text-secondary hover:bg-gray-200 border-border-color"
+            title="Baixar Gráfico"
+          >
+            <DownloadIcon className="w-4 h-4" />
+          </button>
+          {isDownloadMenuOpen && (
+            <div className="absolute right-0 mt-2 w-40 bg-background border border-border-color rounded-md shadow-lg z-20">
+              <ul className="py-1">
+                <li>
+                  <button onClick={handleDownloadPNG} className="w-full text-left px-4 py-2 text-sm text-text-primary hover:bg-secondary-background">
+                    Salvar como PNG
+                  </button>
+                </li>
+                <li>
+                  <button onClick={handleDownloadSVG} className="w-full text-left px-4 py-2 text-sm text-text-primary hover:bg-secondary-background">
+                    Salvar como SVG
+                  </button>
+                </li>
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
       <div ref={chartContainer} className="w-full h-80 p-2"></div>
     </div>
